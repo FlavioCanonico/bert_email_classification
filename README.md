@@ -1,5 +1,5 @@
-# bert_email_classification
-Email's classification with google's BERT model to automatize ticket opening
+# Email classification with BERT
+Email's text classification with google's BERT model to automatize ticket opening
 
 # Intro
 
@@ -118,4 +118,147 @@ Rispetto a quanto riportato nell'esempio originario di Google per la classificaz
 Per un approfondimento dei vari parametri settati si veda la guida ufficiale di BERT.
 In colab, utilizzando la GPU disponibile gratuitamente e con i dati a disposizione, in questa applicazione non è stato possibile superare una max_seq_length pari a 194. In qeusto caso si è optato per impostarla pari a 128. Questo paramentro indica la lunghezza massima del vettore di input generato tramite il word embedding a partire dai testi inseriti. Il limite massimo in BERT è pari a 512, tuttavia la maggior parte dei testi inseriti rientrano in questo limite di 128 per cui non è necessario aumentare il costo computazionale e di conseguenza la durata del training del modello.
 
-L'accuracy ottenuta sul validation set è di circa il 90%. Si è proceduto allora all'inserimento del test set per valutare l'accuracy su un ulteriore set di dati indipendente da quello di train. Per farlo bisognerà settare il parametro ```do_predict``` uguale a ```True```
+L'accuracy ottenuta sul validation set è di circa il 90%. Si è proceduto allora all'inserimento del test set per valutare l'accuracy su un ulteriore set di dati indipendente da quello di train. Per farlo bisognerà settare il parametro ```do_predict``` uguale a ```True```. Inoltre sarà necessario specificare il path del modello addestrato per il parametro ```init_checkpoint```, in modo tale che vengano utilizzati i pesi del modello aggiornato. La ```max_seq_length``` deve essere la stessa utilizzata per la fase di training.
+
+```ruby
+!python /content/bert/run_classifier.py 17 \
+--task_name=cola \
+--do_predict=true \
+--data_dir=/content/data/ \
+--vocab_file=/content/multi_cased_L-12_H-768_A-12/vocab.txt \
+--bert_config_file=/content/multi_cased_L-12_H-768_A-12/bert_config.json \
+--init_checkpoint=/content/bert_output/model.ckpt-1907 \
+--max_seq_length=128 \
+--output_dir=/content/bert_output/ \
+--do_lower_case=False
+```
+
+Per il calcolo dell'accuracy bisogna caricare il dataframe generato dalle predizioni e confrontarlo con il test set originario
+
+```ruby
+df_result = pd.read_csv('./bert_output/test_results.tsv', delimiter = '\t',encoding="utf-8",header=None)
+df_test_completo = pd.read_csv('./data/test_completo.tsv', delimiter = '\t',encoding="utf-8")
+```
+
+Per il confronto si crea un nuovo dataframe e, dato che il risultato è espresso in termini di probabilità del testo doi appartenere a una certa classe, si è optato per la creazione di una colonna che dia come output il valore che identifica la classe a cui con maggiore probabilità va associato il testo. viene conservata anche una colonna che riporta il valore di probabilità, nel caso si voglia utilizzare come criterio di valutazione dell'affidabilità della predizione. Chiaramente se la probabilità che un testo vada associato a una certa classe è "spalmato" in più di una classe è probabile che ci sia maggiore ambiguita nella classificazione del testo.
+
+```ruby
+risultati_test = pd.DataFrame({'guid': df_test_completo['user_id'],
+'text': df_test_completo['text'],
+'label':df_test_completo['label'],
+'one_hot_label':df_test_completo['one_hot_label'],
+'predict_label': df_result.idxmax(axis=1),
+'Prob' : df_result.max(axis=1)})
+```
+Il calcolo dell'accuracy è stato fatto costruendo una tabella di contingenza e valutando la percentuale di testi ben classificati sul totale dei testi.
+
+```ruby
+x = pd.crosstab(risultati_test['one_hot_label'],risultati_test['predict_label'])
+np.diag(x).sum()/risultati_test.shape[0]
+```
+
+L'accuracy si conferma al 90% circa.
+
+Si è proceduto poi allo sviluppo di un apposito strumento per inserire nuove email in modo rapido all'interno del modello addestrato. In questo moso si può testare velocemente lo strumento, mostrarne i risultati in modo semplice a terzi e, in caso di necessità, inserire lo strumento (che si vedrà, altro non è che uno script richiamabile da diversi ambienti) all'interno di un flusso di elaborazione dei dati per automatizzare la classificazione dei testi near real time.
+
+Qui verrà presentata la versione utilizzabile in Colab. Chiaramente il modello può essere scaricato in locale e riutilizzato (con le necessarie modifiche e integrazioni) su una macchina differente per permetterne, ad esempio, l'utilizzo in produzione sui sistemi aziendali.
+
+È stato creato un file shell (si veda il file Script1.sh nel presente repocitory) in cui si definisce un codice che, quando viene richiamato e viene specificato un testo come parametro, crea un file tsv che può essere dato in pasto al modello pre-addestrato.
+
+```
+#!/bin/bash
+
+cat > /content/Shell/test.tsv << EOF
+guid	text
+1	$1
+EOF
+
+python /content/bert/run_classifier.py 17 \
+--task_name=cola \
+--do_predict=true \
+--data_dir=/content/Shell/ \
+--vocab_file=/content/multi_cased_L-12_H-768_A-12/vocab.txt \
+--bert_config_file=/content/multi_cased_L-12_H-768_A-12/bert_config.json \
+--init_checkpoint=/content/bert_output/model.ckpt-1907 \
+--max_seq_length=192 \
+--output_dir=/content/Shell/ \
+--do_lower_case=False
+```
+
+È stato poi scritto uno script python (si veda il file Script2.py nel presente repocitory) in cui alle colonne vengono riasssegnate le etichette delle classi originarie
+
+```ruby
+import pandas as pd;  
+import os;
+df_result = pd.read_csv('/content/Shell/test_results.tsv', sep = '\t', header=None, encoding='utf-8');
+df_result.columns = [
+'Informazione;Amministrativo;Fattura',
+'Informazione;Amministrativo;Richiesta dilazione di pagamento',
+'Informazione;Amministrativo;Situazione contabile',
+'Informazione;Amministrativo;Subentro',
+'Informazione;Commerciale;Attivazione nuovi Prodotti',
+'Informazione;Commerciale;Spedizione',
+'Reclamo;Amministrativo;Doppia fatturazione',
+'Reclamo;Amministrativo;Fatturazione',
+'Reclamo;Commerciale;Attivazione',
+'Reclamo;Tecnico;Guasto',
+'Variazione;Amministrativo;Anagrafica',
+'Variazione;Amministrativo;Fatturazione',
+'Variazione;Amministrativo;Modalita di Pagamento',
+'Variazione;Commerciale;Rimodulazione Offerta',
+'Variazione;Tecnico;Autolettura',
+'Variazione;Tecnico;MNP IN Post Attivazione',
+'Variazione;Tecnico;Tensione e potenza']
+```
+
+Sempre nello stesso script si è optato per il print della classe a cui con maggiore probabilità il testo inserito appartiene, la probabilità che il testo appartenga a quella classe e in coda la probabilità che appartenga alle altre classi
+
+```ruby
+print(df_result.idxmax(1));
+print(df_result.max(1));
+print(df_result);
+```
+
+A questo punto è sufficiente creare la directory "Shell" in Colab
+
+```ruby
+import os
+os.mkdir('./Shell')
+```
+
+e richiamare all'interno dello Script1.sh lo script python
+
+```ruby
+python /content/pythonscript_percolab.py
+```
+
+E direttamente da bash in linux eseguire lo Script1.sh specificando quale frase classificare
+
+```ruby
+!sh ./percolab.sh "Salve ragazzi, il cliente 123456 dice di aver pagato più di quanto ha consumato, in allegato vi comunico l'autolettura. Grazie mille e buon lavoro. Soggetto: Comunicazione Autolettura. Da: Mario Rossi, Sales area Milano"
+```
+
+Il risultato è il seguente
+
+```ruby
+[...]
+INFO:tensorflow:Running local_init_op.
+INFO:tensorflow:Done running local_init_op.
+INFO:tensorflow:prediction_loop marked as finished
+INFO:tensorflow:prediction_loop marked as finished
+0    Variazione;Tecnico;Autolettura
+dtype: object
+0    0.995345
+dtype: float64
+   Informazione;Amministrativo;Fattura  ...  Variazione;Tecnico;Tensione e potenza
+0                             0.000309  ...                               0.000159
+
+[1 rows x 17 columns]
+```
+
+Il modello ha previsto correttamente l'apertura di un ticket di "Variazione;Tecnico;Autolettura".
+
+
+# Conclusioni
+
+Da questo esempio emergono chiaramente le potenzialità di BERT come strumento di Intelligenza Artificiale per il Natural Language Processing. Le applicazioni possono essere numerose e vanno dalla text classification alla costruzione di chatbot alla next sentence prediction alla sentiment analysis e così via. Si tratta quindi di uno strumento che può servire sia all'automatizzazione di processi di lettura dei dati (come in questo esempio), che all'analisi automatica dei testi per la costruzione, ad esempio, di strumetni per valutare la voice of customers.
