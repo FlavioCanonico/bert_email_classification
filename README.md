@@ -159,6 +159,8 @@ np.diag(x).sum()/risultati_test.shape[0]
 
 L'accuracy si conferma al 90% circa.
 
+# Strumenti aggiuntivi
+
 Si è proceduto poi allo sviluppo di un apposito strumento per inserire nuove email in modo rapido all'interno del modello addestrato. In questo moso si può testare velocemente lo strumento, mostrarne i risultati in modo semplice a terzi e, in caso di necessità, inserire lo strumento (che si vedrà, altro non è che uno script richiamabile da diversi ambienti) all'interno di un flusso di elaborazione dei dati per automatizzare la classificazione dei testi near real time.
 
 Qui verrà presentata la versione utilizzabile in Colab. Chiaramente il modello può essere scaricato in locale e riutilizzato (con le necessarie modifiche e integrazioni) su una macchina differente per permetterne, ad esempio, l'utilizzo in produzione sui sistemi aziendali.
