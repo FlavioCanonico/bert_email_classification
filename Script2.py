@@ -18,7 +18,8 @@ df_result.columns = [
 'Variazione;Commerciale;Rimodulazione Offerta',
 'Variazione;Tecnico;Autolettura',
 'Variazione;Tecnico;MNP IN Post Attivazione',
-'Variazione;Tecnico;Tensione e potenza']
+'Variazione;Tecnico;Tensione e potenza'
+]
 
 print(df_result.idxmax(1));
 print(df_result.max(1));
